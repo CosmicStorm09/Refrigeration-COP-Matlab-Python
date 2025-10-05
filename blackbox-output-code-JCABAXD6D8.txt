@@ -1,0 +1,111 @@
+function vapor_compression_COP()
+    % Simple Vapor Compression Refrigeration System COP Calculator with compressor efficiency
+    % Requires CoolProp installed and added to MATLAB path
+    
+    % Input refrigerant and conditions
+    refrigerant = input('Enter refrigerant (e.g., R134a, R22, R410A): ', 's');
+    
+    P_evap_kPa = input('Enter evaporator pressure (kPa): ');
+    P_cond_kPa = input('Enter condenser pressure (kPa): ');
+    P_evap = P_evap_kPa * 1000; % Pa
+    P_cond = P_cond_kPa * 1000; % Pa
+    
+    T_evap_in_C = input('Enter evaporator inlet temperature (°C): ');
+    T_evap_out_C = input('Enter evaporator outlet temperature (°C): ');
+    T_cond_in_C = input('Enter condenser inlet temperature (°C): ');
+    T_cond_out_C = input('Enter condenser outlet temperature (°C): ');
+    
+    T_evap_in = T_evap_in_C + 273.15; % K
+    T_evap_out = T_evap_out_C + 273.15; % K
+    T_cond_in = T_cond_in_C + 273.15; % K
+    T_cond_out = T_cond_out_C + 273.15; % K
+    
+    eta_comp = input('Enter compressor isentropic efficiency (0-1): ');
+    if isempty(eta_comp)
+        eta_comp = 1.0; % default 100%
+    end
+    
+    % State 1: Evaporator outlet (assumed saturated vapor at evaporator outlet temp and pressure)
+    h1 = CoolProp.PropsSI('H', 'P', P_evap, 'T', T_evap_out, refrigerant);
+    s1 = CoolProp.PropsSI('S', 'P', P_evap, 'T', T_evap_out, refrigerant);
+    
+    % State 2s: Compressor outlet (isentropic compression to condenser pressure)
+    s2s = s1;
+    T2s = CoolProp.PropsSI('T', 'P', P_cond, 'S', s2s, refrigerant);
+    h2s = CoolProp.PropsSI('H', 'P', P_cond, 'S', s2s, refrigerant);
+    
+    % Real compressor outlet enthalpy with isentropic efficiency
+    h2 = (h2s - h1) / eta_comp + h1;
+    T2 = CoolProp.PropsSI('T', 'P', P_cond, 'H', h2, refrigerant);
+    
+    % State 3: Condenser outlet (assumed saturated liquid at condenser outlet temp and pressure)
+    h3 = CoolProp.PropsSI('H', 'P', P_cond, 'T', T_cond_out, refrigerant);
+    s3 = CoolProp.PropsSI('S', 'P', P_cond, 'T', T_cond_out, refrigerant);
+    
+    % State 4: Expansion valve outlet (isenthalpic expansion to evaporator pressure)
+    h4 = h3;
+    T4 = CoolProp.PropsSI('T', 'P', P_evap, 'H', h4, refrigerant);
+    s4 = CoolProp.PropsSI('S', 'P', P_evap, 'H', h4, refrigerant);
+    
+    % Refrigeration effect and work input
+    q_in = h1 - h4; % J/kg
+    w_in = h2 - h1; % J/kg
+    
+    COP = q_in / w_in;
+    
+    % Display results
+    fprintf('\nResults:\n');
+    fprintf('State 1 (Evaporator outlet): h1 = %.2f kJ/kg, T1 = %.2f °C\n', h1/1000, T_evap_out_C);
+    fprintf('State 2 (Compressor outlet): h2 = %.2f kJ/kg, T2 = %.2f °C\n', h2/1000, T2 - 273.15);
+    fprintf('State 3 (Condenser outlet): h3 = %.2f kJ/kg, T3 = %.2f °C\n', h3/1000, T_cond_out_C);
+    fprintf('State 4 (Expansion valve outlet): h4 = %.2f kJ/kg, T4 = %.2f °C\n', h4/1000, T4 - 273.15);
+    fprintf('Refrigeration effect (q_in): %.2f kJ/kg\n', q_in/1000);
+    fprintf('Work input (w_in): %.2f kJ/kg\n', w_in/1000);
+    fprintf('Coefficient of Performance (COP): %.2f\n', COP);
+    
+    % Plot p-h diagram
+    plot_ph_diagram(refrigerant, P_evap, P_cond, [h1 h2 h3 h4], [P_evap P_cond P_cond P_evap]);
+end
+
+function plot_ph_diagram(refrigerant, P_evap, P_cond, h_cycle, P_cycle)
+    % Generate saturation curve data
+    P_sat = logspace(log10(P_evap*0.8), log10(P_cond*1.2), 500);
+    hL = zeros(size(P_sat));
+    hV = zeros(size(P_sat));
+    for i = 1:length(P_sat)
+        try
+            hL(i) = CoolProp.PropsSI('H', 'P', P_sat(i), 'Q', 0, refrigerant)/1000;
+            hV(i) = CoolProp.PropsSI('H', 'P', P_sat(i), 'Q', 1, refrigerant)/1000;
+        catch
+            hL(i) = NaN;
+            hV(i) = NaN;
+        end
+    end
+    P_sat_kPa = P_sat / 1000;
+    
+    figure;
+    semilogy(hL, P_sat_kPa, 'b-', 'LineWidth', 1.5); hold on;
+    semilogy(hV, P_sat_kPa, 'r-', 'LineWidth', 1.5);
+    
+    h_cycle_kJ = h_cycle / 1000;
+    P_cycle_kPa = P_cycle / 1000;
+    
+    % Close cycle
+    h_cycle_kJ = [h_cycle_kJ h_cycle_kJ(1)];
+    P_cycle_kPa = [P_cycle_kPa P_cycle_kPa(1)];
+    
+    plot(h_cycle_kJ, P_cycle_kPa, 'ko-', 'MarkerFaceColor', 'k', 'LineWidth', 1.5);
+    
+    for i = 1:length(h_cycle)
+        text(h_cycle_kJ(i), P_cycle_kPa(i), sprintf('%d', i), 'FontWeight', 'bold', 'FontSize', 12, 'Color', 'k');
+    end
+    
+    xlabel('Enthalpy (kJ/kg)');
+    ylabel('Pressure (kPa)');
+    title(['Pressure-Enthalpy (p-h) Diagram for ', refrigerant]);
+    grid on;
+    legend('Saturated Liquid', 'Saturated Vapor', 'Cycle', 'Location', 'best');
+    set(gca, 'YScale', 'log');
+    set(gca, 'YDir', 'reverse'); % Pressure decreases upward
+    hold off;
+end
